@@ -21,6 +21,7 @@ from prompt_toolkit.completion import Completer, Completion, ThreadedCompleter
 from prompt_toolkit.cursor_shapes import ModalCursorShapeConfig
 from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.filters import Condition, is_searching
+from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.vi_state import InputMode
@@ -51,6 +52,121 @@ from .waiting import Spinner
 
 # Constants
 NOTIFICATION_MESSAGE = "cecli is waiting for your input"
+
+# OSC 133 Semantic Terminal Support Constants
+OSC_133_PROMPT_START = "A"
+OSC_133_PROMPT_END = "B"
+OSC_133_COMMAND_START = "C"
+OSC_133_COMMAND_END = "D"
+OSC_BEL_TERMINATOR = "\x07"
+
+# OSC 133 Semantic Terminal Support
+def generate_osc133_sequence(command, exit_code=None, params=None):
+    """
+    Generate OSC 133 sequence for semantic terminal integration.
+
+    Args:
+        command: OSC 133 command (A, B, C, D)
+        exit_code: Optional exit code for D command
+        params: Optional list of parameters
+
+    Returns:
+        String containing the OSC 133 escape sequence
+
+    Raises:
+        ValueError: If command is not one of the valid OSC 133 commands
+    """
+    valid_commands = [OSC_133_PROMPT_START, OSC_133_PROMPT_END, OSC_133_COMMAND_START, OSC_133_COMMAND_END]
+    if command not in valid_commands:
+        raise ValueError(f"Invalid OSC 133 command: {command}. Must be one of: {valid_commands}")
+
+    sequence = f"\x1b]133;{command}"
+
+    if params:
+        for param in params:
+            sequence += f";{param}"
+
+    if exit_code is not None:
+        sequence += f";{exit_code}"
+
+    sequence += OSC_BEL_TERMINATOR
+    return sequence
+
+
+def detect_osc133_support():
+    """
+    Detect if the current terminal supports OSC 133 sequences.
+
+    Returns:
+        bool: True if OSC 133 is supported, False otherwise
+    """
+    # Check for known terminal programs that support OSC 133
+    term_program = os.environ.get("TERM_PROGRAM", "").lower()
+
+    # VS Code terminal
+    if term_program == "vscode":
+        return True
+
+    # Kitty terminal
+    if term_program == "kitty":
+        return True
+
+    # WezTerm
+    if term_program == "wezterm":
+        return True
+
+    # iTerm2
+    if term_program == "iterm.app":
+        return True
+
+    # Check for shell integration environment variables
+    if os.environ.get("WEZTERM_SHELL_INTEGRATION"):
+        return True
+
+    if os.environ.get("KITTY_SHELL_INTEGRATION"):
+        return True
+
+    # Check TERM variable for other supporting terminals
+    term = os.environ.get("TERM", "").lower()
+
+    # Foot terminal
+    if "foot" in term:
+        return True
+
+    # Contour terminal
+    if "contour" in term:
+        return True
+
+    return False
+
+
+def should_enable_osc133(force_enable=None):
+    """
+    Determine if OSC 133 should be enabled based on environment and user preference.
+
+    Precedence order (highest to lowest):
+    1. CECLI_SEMANTIC_TERMINAL environment variable
+    2. force_enable parameter (explicit user setting)
+    3. Auto-detection based on terminal capabilities
+
+    Args:
+        force_enable: Optional boolean to force enable/disable OSC 133.
+                     If None, auto-detection is used.
+
+    Returns:
+        bool: True if OSC 133 should be enabled
+    """
+    # Check for environment variable override first
+    env_override = os.environ.get("CECLI_SEMANTIC_TERMINAL")
+    if env_override is not None:
+        return env_override.lower() in ("true", "1", "yes", "on")
+
+    # Check for explicit force parameter
+    if force_enable is not None:
+        return force_enable
+
+    # Fall back to auto-detection
+    return detect_osc133_support()
 
 
 def ensure_hash_prefix(color):
@@ -365,6 +481,7 @@ class InputOutput:
         notifications=False,
         notifications_command=None,
         verbose=False,
+        semantic_terminal=None,
     ):
         self.console = Console()
         self.pretty = pretty
@@ -528,6 +645,9 @@ class InputOutput:
         self.file_watcher = file_watcher
         self.root = root
 
+        # Initialize OSC 133 semantic terminal support
+        self.osc133_enabled = should_enable_osc133(semantic_terminal)
+        self.osc133_response_started = False
         # Validate color settings after console is initialized
         self._validate_color_settings()
         self.append_chat_history(f"\n# cecli chat started at {current_time}\n\n")
@@ -821,6 +941,11 @@ class InputOutput:
         show += prompt_prefix
         self.prompt_prefix = prompt_prefix
 
+        # OSC 133 support: emit A sequence before prompt+input phase
+        if self.osc133_enabled and self.linear:
+            sys.stdout.write(generate_osc133_sequence(OSC_133_PROMPT_START))
+            sys.stdout.flush()
+
         inp = ""
         multiline_input = False
 
@@ -955,9 +1080,20 @@ class InputOutput:
                         key_bindings=kb,
                         complete_while_typing=True,
                         prompt_continuation=get_continuation,
+                        refresh_interval=0.1,
                     )
+                    
+                    # OSC 133 support: emit B sequence after prompt+input phase
+                    if self.osc133_enabled and self.linear:
+                        sys.stdout.write(generate_osc133_sequence(OSC_133_PROMPT_END))
+                        sys.stdout.flush()
                 else:
                     line = await asyncio.get_event_loop().run_in_executor(None, input, show)
+                    
+                    # OSC 133 support: emit B sequence after prompt+input phase (fallback mode)
+                    if self.osc133_enabled and self.linear:
+                        sys.stdout.write(generate_osc133_sequence(OSC_133_PROMPT_END))
+                        sys.stdout.flush()
 
                 # Check if we were interrupted by a file change
                 if self.interrupted:
@@ -1039,6 +1175,7 @@ class InputOutput:
                 break
 
         self.user_input(inp)
+
         return inp
 
     async def stop_input_task(self):
@@ -1546,6 +1683,7 @@ class InputOutput:
         """
         Stream output using Rich console to respect pretty print settings.
         This preserves formatting, colors, and other Rich features during streaming.
+        Includes OSC 133 semantic terminal support for enhanced terminal integration.
         """
         # Initialize buffer if not exists
         if not hasattr(self, "_stream_buffer"):
@@ -1554,6 +1692,13 @@ class InputOutput:
         # Initialize buffer if not exists
         if not hasattr(self, "_stream_line_count"):
             self._stream_line_count = 0
+
+        # OSC 133 support: emit prompt start sequence at the beginning of response (only in linear output mode)
+        if self.osc133_enabled and self.linear and not self.osc133_response_started and text.strip():
+            # Mark the start of AI response output
+            sys.stdout.write(generate_osc133_sequence(OSC_133_COMMAND_START))
+            sys.stdout.flush()
+            self.osc133_response_started = True
 
         self._stream_buffer += text
 
@@ -1605,6 +1750,13 @@ class InputOutput:
                 )
 
         if should_reset:
+            # OSC 133 support: emit execution finished sequence at the end of response (only in linear output mode)
+            if self.osc133_enabled and self.linear and self.osc133_response_started:
+                # Mark the end of AI response output with success exit code
+                sys.stdout.write(generate_osc133_sequence(OSC_133_COMMAND_END, exit_code=0))
+                sys.stdout.flush()
+                self.osc133_response_started = False
+
             self.reset_streaming_response()
 
     def remove_consecutive_empty_strings(self, string_list):

@@ -512,6 +512,12 @@ def get_parser(default_config_files, git_root):
         help="Enable/disable streaming responses (default: True)",
     )
     group.add_argument(
+        "--semantic-terminal",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Force enable/disable OSC 133 semantic terminal support (default: auto-detect)",
+    )
+    group.add_argument(
         "--user-input-color",
         default="#00cc00",
         help="Set the color for user input (default: #00cc00)",

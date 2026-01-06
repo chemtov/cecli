@@ -150,6 +150,18 @@ def validate_tui_args(args):
         sys.exit(1)
 
 
+def validate_semantic_terminal_args(args):
+    """Validate that semantic terminal settings are compatible with output mode."""
+    # Only validate if user explicitly enabled semantic terminal
+    if args.semantic_terminal is True:  # Explicitly True, not None or auto-detected
+        # Check if linear output was also explicitly enabled
+        if not args.linear_output:
+            print("Error: Semantic terminal support (--semantic-terminal) requires linear output mode.")
+            print("Please also add --linear-output to enable semantic terminal sequences.")
+            print("Example: cecli --semantic-terminal --linear-output")
+            sys.exit(1)
+
+
 async def make_new_repo(git_root, io):
     try:
         repo = git.Repo.init(git_root)
@@ -633,9 +645,11 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
             notifications=args.notifications,
             notifications_command=args.notifications_command,
             verbose=args.verbose,
+            semantic_terminal=args.semantic_terminal,
         )
 
     validate_tui_args(args)
+    validate_semantic_terminal_args(args)
     output_queue = None
     input_queue = None
     pre_init_io = get_io(args.pretty)

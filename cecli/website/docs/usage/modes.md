@@ -209,3 +209,50 @@ from math import factorial
 
 </div>
 
+## Terminal Integration (OSC 133)
+
+Cecli includes support for OSC 133 semantic terminal sequences when running in linear output mode.
+This provides enhanced terminal integration features for compatible terminals.
+
+### Supported Terminals
+
+OSC 133 support is automatically enabled when cecli detects one of these terminals:
+
+- **VS Code** integrated terminal
+- **Kitty** terminal
+- **WezTerm**
+- **iTerm2** (macOS)
+- **Foot** terminal (Linux)
+- **Contour** terminal
+
+### Features
+
+When OSC 133 is enabled, compatible terminals can provide:
+
+- **Response Navigation**: Jump between different AI responses in your terminal scrollback
+- **Output Selection**: Select entire AI response output with a single click or keystroke
+- **Visual Indicators**: Clear visual separation between user input and AI responses
+- **Command History**: Enhanced navigation through conversation history
+
+### How It Works
+
+Cecli automatically emits OSC 133 sequences during linear output:
+
+- `OSC 133;A` - Marks the start of an AI response
+- `OSC 133;D;0` - Marks the end of an AI response (with success status)
+
+These sequences are invisible in unsupported terminals, ensuring backward compatibility.
+
+### Terminal-Specific Features
+
+**VS Code Terminal:**
+- Use Ctrl+Shift+G to view the last AI response in a pager
+- Use Ctrl+Shift+Z/X to jump between responses
+
+**Kitty Terminal:**
+- Use `kitty @ scroll-to-prompt -1/1` to navigate between responses
+- Select entire responses with semantic selection
+
+**WezTerm:**
+- Navigate with prompt navigation keybindings
+- Copy AI responses programmatically
