@@ -248,7 +248,7 @@ class McpServerManager:
             server: McpServer, connect: bool = True, max_retries: int = 3
         ) -> tuple[McpServer, bool]:
             """Try to add and connect to a server with retries."""
-            if not connect:
+            if not connect or connect == "False" :
                 success = await mcp_manager.add_server(server, connect=False)
                 return (server, success)
 
